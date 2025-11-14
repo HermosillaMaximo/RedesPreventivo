@@ -1,72 +1,117 @@
-import com.sun.jdi.event.ExceptionEvent;
+package virgo;
 
 import javax.crypto.*;
 import javax.crypto.spec.SecretKeySpec;
 import java.io.*;
 import java.net.*;
-import java.util.*;
 import java.security.*;
+import java.security.spec.X509EncodedKeySpec;
+import java.util.*;
 
-public class Servidor
-{
+/**
+ * Servidor que gestiona la comunicación entre clientes y moderador
+ * con encriptación simétrica (AES), asimétrica (RSA) y firmas digitales
+ */
+public class Servidor {
     private ServerSocket serverSocketClientes;
     private ServerSocket serverSocketModerador;
     private Socket moderadorSocket;
-    private ArrayList<Socket> clientes = new ArrayList<>();
-    private final Object lockModerador = new Object();
-    private Map<Socket, String> nombresClientes = new HashMap<>();
-    private PrintWriter salidaModerador;
-    private BufferedReader entradaModerador;
+    private ArrayList<Socket> clientes;
+    private final Object lockModerador;
+    private Map<Socket, String> nombresClientes;
+    private Map<Socket, PublicKey> clavesPublicasClientes;
+    private DataOutputStream salidaModerador;
+    private DataInputStream entradaModerador;
     private PublicKey clavePublicaServidor;
     private PrivateKey clavePrivadaServidor;
-    private Map<Socket, SecretKey> clavesAESClientes = new HashMap<>();
+    private Map<Socket, SecretKey> clavesAESClientes;
     private SecretKey claveAESModerador;
+    private PublicKey clavePublicaModerador;
 
+    public Servidor(int puertoModerador, int puertoClientes) throws IOException {
+        this.serverSocketModerador = new ServerSocket(puertoModerador);
+        this.serverSocketClientes = new ServerSocket(puertoClientes);
+        this.clientes = new ArrayList<>();
+        this.lockModerador = new Object();
+        this.nombresClientes = new HashMap<>();
+        this.clavesAESClientes = new HashMap<>();
+        this.clavesPublicasClientes = new HashMap<>();
 
-
-    public Servidor(int puertoModerador, int puertoClientes) throws IOException
-    {
-        serverSocketModerador = new ServerSocket(puertoModerador);
-        serverSocketClientes = new ServerSocket(puertoClientes);
-        System.out.println("Servidor iniciado en puerto moderador: " + puertoModerador);
-        System.out.println("Servidor iniciado en puerto clientes: " + puertoClientes);
+        System.out.println("✅ Servidor iniciado");
+        System.out.println("   Puerto moderador: " + puertoModerador);
+        System.out.println("   Puerto clientes: " + puertoClientes);
     }
 
-
-    /*  El servidor aca genera las claves Publicas y Privadas para poder comunicarse
-        con los clientes.
-    */
-
-    public void generarClaves_Pub_Priv() throws Exception{
-        try {
-            KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA"); // Definimos que utilizamos Encriptacion Asimetrica
-            generator.initialize(2050);
-            KeyPair parClaves = generator.generateKeyPair();
-            clavePublicaServidor = parClaves.getPublic();
-            clavePrivadaServidor = parClaves.getPrivate();
-        }catch (Exception e){
-            e.printStackTrace();
-        }
-
+    /**
+     * Genera el par de claves pública y privada RSA para el servidor
+     */
+    public void generarClavesRSA() throws NoSuchAlgorithmException {
+        KeyPairGenerator generador = KeyPairGenerator.getInstance("RSA");
+        generador.initialize(2048);
+        KeyPair parClaves = generador.generateKeyPair();
+        this.clavePublicaServidor = parClaves.getPublic();
+        this.clavePrivadaServidor = parClaves.getPrivate();
+        System.out.println("🔑 Claves RSA del servidor generadas");
     }
 
-
-
-    private String getClavePublica() {
-        return Base64.getEncoder().encodeToString(clavePublicaServidor.getEncoded());
-        /* Es como el ejemplo que puso pruchi, pasa a texto todos los bytes binarios que se generaron
-        Ej : 0101010101110101010  ->  MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A
-    * */
+    /**
+     * Convierte la clave pública del servidor a bytes
+     */
+    private byte[] obtenerClavePublicaEnBytes() {
+        return clavePublicaServidor.getEncoded();
     }
 
+    /**
+     * Espera la conexión del moderador y establece la clave AES compartida
+     */
+    public void esperarConexionModerador() throws Exception {
+        System.out.println("⏳ Esperando conexión del moderador...");
+        moderadorSocket = serverSocketModerador.accept();
+        System.out.println("✅ Moderador conectado desde: " + moderadorSocket.getInetAddress());
 
-    private void enviarClavePublicaAlModerador() {
-        salidaModerador.println(getClavePublica());
+        salidaModerador = new DataOutputStream(moderadorSocket.getOutputStream());
+        entradaModerador = new DataInputStream(moderadorSocket.getInputStream());
+
+        // Enviar clave pública al moderador
+        enviarClavePublicaAlModerador();
+
+        // Recibir clave pública del moderador
+        recibirClavePublicaDelModerador();
+
+        // Recibir y descifrar la clave AES del moderador
+        recibirYDescifrarClaveAESDelModerador();
     }
 
-    private void recibir_y_DescifrarClaveDelModerador() throws Exception {
-        String claveAESCifradaBase64 = entradaModerador.readLine();
-        byte[] claveAESCifrada = Base64.getDecoder().decode(claveAESCifradaBase64);
+    /**
+     * Envía la clave pública RSA al moderador (en bytes)
+     */
+    private void enviarClavePublicaAlModerador() throws IOException {
+        byte[] clavePublicaBytes = obtenerClavePublicaEnBytes();
+        salidaModerador.writeInt(clavePublicaBytes.length);
+        salidaModerador.write(clavePublicaBytes);
+        salidaModerador.flush();
+    }
+
+    /**
+     * Recibe la clave pública del moderador
+     */
+    private void recibirClavePublicaDelModerador() throws Exception {
+        int tamaño = entradaModerador.readInt();
+        byte[] clavePublicaBytes = new byte[tamaño];
+        entradaModerador.readFully(clavePublicaBytes);
+
+        KeyFactory keyFactory = KeyFactory.getInstance("RSA");
+        clavePublicaModerador = keyFactory.generatePublic(new X509EncodedKeySpec(clavePublicaBytes));
+        System.out.println("🔑 Clave pública del moderador recibida");
+    }
+
+    /**
+     * Recibe la clave AES cifrada del moderador y la descifra con la clave privada RSA
+     */
+    private void recibirYDescifrarClaveAESDelModerador() throws Exception {
+        int tamaño = entradaModerador.readInt();
+        byte[] claveAESCifrada = new byte[tamaño];
+        entradaModerador.readFully(claveAESCifrada);
 
         Cipher cifradorRSA = Cipher.getInstance("RSA");
         cifradorRSA.init(Cipher.DECRYPT_MODE, clavePrivadaServidor);
@@ -76,54 +121,87 @@ public class Servidor
         System.out.println("🔐 Clave AES del moderador establecida");
     }
 
-
-
-    public void esperarModerador() throws Exception {
-        System.out.println("Esperando conexión del moderador...");
-        moderadorSocket = serverSocketModerador.accept();
-        System.out.println("Moderador conectado.");
-
-        salidaModerador = new PrintWriter(moderadorSocket.getOutputStream(), true);
-        entradaModerador = new BufferedReader(new InputStreamReader(moderadorSocket.getInputStream()));
-
-        enviarClavePublicaAlModerador();
-
-        recibir_y_DescifrarClaveDelModerador();
-
-    }
-
-    public void esperarClientes()
-    {
-        new Thread(() ->
-        {
-            System.out.println("Esperando clientes");
+    /**
+     * Inicia el hilo que espera conexiones de múltiples clientes
+     */
+    public void esperarConexionesClientes() {
+        new Thread(() -> {
+            System.out.println("⏳ Esperando clientes...");
             while (true) {
                 try {
                     Socket cliente = serverSocketClientes.accept();
                     clientes.add(cliente);
+                    System.out.println("🔗 Cliente conectado desde: " + cliente.getInetAddress());
 
-                    procesarCliente(cliente);
-
+                    procesarNuevoCliente(cliente);
                 } catch (Exception e) {
-                    System.out.println("Error: No se pudo procesar al cliente" + e.getMessage());
+                    System.err.println("❌ Error al procesar cliente: " + e.getMessage());
                     e.printStackTrace();
                 }
-
             }
         }).start();
     }
 
+    /**
+     * Procesa la conexión de un nuevo cliente: intercambio de claves y nombre
+     */
+    private void procesarNuevoCliente(Socket cliente) throws Exception {
+        DataInputStream entrada = new DataInputStream(cliente.getInputStream());
+        DataOutputStream salida = new DataOutputStream(cliente.getOutputStream());
 
+        // Enviar clave pública del servidor al cliente
+        enviarClavePublicaAlCliente(salida);
 
-    private void enviarClavePublicaAlCliente(PrintWriter salida) {
-        salida.println(getClavePublica());
+        // Recibir la clave pública del cliente
+        PublicKey clavePublicaCliente = recibirClavePublicaDelCliente(entrada);
+        clavesPublicasClientes.put(cliente, clavePublicaCliente);
+
+        // Recibir y descifrar la clave AES del cliente
+        SecretKey claveAESCliente = recibirYDescifrarClaveAESDelCliente(entrada);
+        clavesAESClientes.put(cliente, claveAESCliente);
+
+        // Recibir el nombre del cliente
+        int tamañoNombre = entrada.readInt();
+        byte[] nombreBytes = new byte[tamañoNombre];
+        entrada.readFully(nombreBytes);
+        String nombreCliente = new String(nombreBytes);
+
+        nombresClientes.put(cliente, nombreCliente);
+        System.out.println("👤 Cliente identificado como: " + nombreCliente);
+
+        // Iniciar hilo para manejar mensajes de este cliente
+        iniciarHiloParaManejarMensajesDelCliente(cliente, entrada, salida, nombreCliente);
     }
 
+    /**
+     * Envía la clave pública RSA a un cliente (en bytes)
+     */
+    private void enviarClavePublicaAlCliente(DataOutputStream salida) throws IOException {
+        byte[] clavePublicaBytes = obtenerClavePublicaEnBytes();
+        salida.writeInt(clavePublicaBytes.length);
+        salida.write(clavePublicaBytes);
+        salida.flush();
+    }
 
+    /**
+     * Recibe la clave pública del cliente
+     */
+    private PublicKey recibirClavePublicaDelCliente(DataInputStream entrada) throws Exception {
+        int tamaño = entrada.readInt();
+        byte[] clavePublicaBytes = new byte[tamaño];
+        entrada.readFully(clavePublicaBytes);
 
-    private SecretKey recibirYDescifrarClaveAESDelCliente(BufferedReader entrada) throws Exception {
-        String claveAESCifradaBase64 = entrada.readLine();
-        byte[] claveAESCifrada = Base64.getDecoder().decode(claveAESCifradaBase64);
+        KeyFactory keyFactory = KeyFactory.getInstance("RSA");
+        return keyFactory.generatePublic(new X509EncodedKeySpec(clavePublicaBytes));
+    }
+
+    /**
+     * Recibe la clave AES cifrada de un cliente y la descifra
+     */
+    private SecretKey recibirYDescifrarClaveAESDelCliente(DataInputStream entrada) throws Exception {
+        int tamaño = entrada.readInt();
+        byte[] claveAESCifrada = new byte[tamaño];
+        entrada.readFully(claveAESCifrada);
 
         Cipher cifradorRSA = Cipher.getInstance("RSA");
         cifradorRSA.init(Cipher.DECRYPT_MODE, clavePrivadaServidor);
@@ -132,113 +210,156 @@ public class Servidor
         return new SecretKeySpec(claveAESBytes, 0, claveAESBytes.length, "AES");
     }
 
-
-
-    private void procesarCliente(Socket cliente) throws Exception {
-        BufferedReader entrada = new BufferedReader(new InputStreamReader(cliente.getInputStream()));
-        PrintWriter salida = new PrintWriter(cliente.getOutputStream(), true);
-
-
-        enviarClavePublicaAlCliente(salida);
-
-        // Recibir y descifrar la clave AES del cliente
-        SecretKey claveAESCliente = recibirYDescifrarClaveAESDelCliente(entrada);
-        clavesAESClientes.put(cliente, claveAESCliente); // Aca guardamos el cliente y la clave que se genero entre ellos
-
-        // Recibir el nombre del cliente
-        String nombreCliente = entrada.readLine();
-        nombresClientes.put(cliente, nombreCliente);
-        System.out.println("Cliente conectado: " + cliente.getInetAddress() + " como " + nombreCliente);
-
-        // Iniciar hilo para manejar mensajes de este cliente
-        manejoMensajesDelCliente(cliente, entrada, salida, nombreCliente);
-    }
-
-    private void manejoMensajesDelCliente(Socket cliente, BufferedReader entrada,
-                                                          PrintWriter salida, String nombreCliente) {
+    /**
+     * Inicia un hilo dedicado para manejar los mensajes de un cliente específico
+     */
+    private void iniciarHiloParaManejarMensajesDelCliente(Socket cliente, DataInputStream entrada,
+                                                          DataOutputStream salida, String nombreCliente) {
         new Thread(() -> {
             try {
-                String mensajeCifrado;
-                while ((mensajeCifrado = entrada.readLine()) != null) {
-                    procesarMensajeDelCliente(cliente, mensajeCifrado, salida, nombreCliente);
+                while (true) {
+                    // Recibir el paquete (mensaje cifrado + firma)
+                    Paquete paquete = recibirPaquete(entrada);
+
+                    procesarPaqueteDelCliente(cliente, paquete, salida, nombreCliente);
                 }
             } catch (Exception e) {
-                System.err.println("Error manejando al cliente: " + nombreCliente + ": " + e.getMessage());
+                System.err.println("❌ Error manejando cliente " + nombreCliente + ": " + e.getMessage());
             }
         }).start();
     }
 
+    /**
+     * Recibe un paquete (mensaje cifrado + firma)
+     */
+    private Paquete recibirPaquete(DataInputStream entrada) throws IOException {
+        // Recibir mensaje cifrado
+        int tamañoMensaje = entrada.readInt();
+        byte[] mensajeCifrado = new byte[tamañoMensaje];
+        entrada.readFully(mensajeCifrado);
 
+        // Recibir firma
+        int tamañoFirma = entrada.readInt();
+        byte[] firma = new byte[tamañoFirma];
+        entrada.readFully(firma);
 
-    private String descifrarMensajeDelCliente(Socket cliente, String mensajeCifrado) throws Exception {
+        return new Paquete(mensajeCifrado, firma);
+    }
+
+    /**
+     * Procesa un paquete de un cliente: verifica firma, descifra, envía al moderador
+     */
+    private void procesarPaqueteDelCliente(Socket cliente, Paquete paquete,
+                                           DataOutputStream salidaCliente, String nombreCliente) throws Exception {
+        // Descifrar el mensaje del cliente
+        String mensajeDescifrado = descifrarMensajeDelCliente(cliente, paquete.getMensajeCifradoBytes());
+
+        // Verificar la firma digital
+        boolean firmaValida = verificarFirma(cliente, mensajeDescifrado, paquete.getFirmaBytes());
+
+        if (!firmaValida) {
+            System.out.println("⚠️ FIRMA INVÁLIDA de " + nombreCliente + " - Mensaje rechazado");
+            byte[] respuesta = "RECHAZADO".getBytes();
+            salidaCliente.writeInt(respuesta.length);
+            salidaCliente.write(respuesta);
+            salidaCliente.flush();
+            return;
+        }
+
+        System.out.println("✓ Firma válida de " + nombreCliente);
+
+        // Crear mensaje completo con origen
+        Mensaje mensaje = new Mensaje(nombreCliente, mensajeDescifrado);
+
+        // Cifrar y enviar al moderador
+        byte[] mensajeCifradoParaModerador = cifrarMensajeParaModerador(mensaje.toString());
+
+        // Enviar al moderador y esperar su decisión
+        String decision = enviarAlModeradorYEsperarDecision(mensajeCifradoParaModerador);
+
+        // Procesar la decisión del moderador
+        procesarDecisionDelModerador(decision, salidaCliente, mensaje.toString());
+    }
+
+    /**
+     * Verifica la firma digital de un mensaje
+     */
+    private boolean verificarFirma(Socket cliente, String mensaje, byte[] firma) throws Exception {
+        PublicKey clavePublicaCliente = clavesPublicasClientes.get(cliente);
+
+        Signature verificador = Signature.getInstance("SHA256withRSA");
+        verificador.initVerify(clavePublicaCliente);
+        verificador.update(mensaje.getBytes());
+
+        return verificador.verify(firma);
+    }
+
+    /**
+     * Descifra un mensaje del cliente usando su clave AES
+     */
+    private String descifrarMensajeDelCliente(Socket cliente, byte[] mensajeCifrado) throws Exception {
         SecretKey claveAESCliente = clavesAESClientes.get(cliente);
 
         Cipher cifradorAES = Cipher.getInstance("AES");
         cifradorAES.init(Cipher.DECRYPT_MODE, claveAESCliente);
-        byte[] mensajeBytes = Base64.getDecoder().decode(mensajeCifrado);
 
-        return new String(cifradorAES.doFinal(mensajeBytes));
+        return new String(cifradorAES.doFinal(mensajeCifrado));
     }
 
-
-
-    private String cifrarMensajeParaModerador(String mensaje) throws Exception {
+    /**
+     * Cifra un mensaje para enviarlo al moderador usando la clave AES compartida
+     */
+    private byte[] cifrarMensajeParaModerador(String mensaje) throws Exception {
         Cipher cifradorAES = Cipher.getInstance("AES");
         cifradorAES.init(Cipher.ENCRYPT_MODE, claveAESModerador);
-        byte[] mensajeCifrado = cifradorAES.doFinal(mensaje.getBytes());
 
-        return Base64.getEncoder().encodeToString(mensajeCifrado);
+        return cifradorAES.doFinal(mensaje.getBytes());
     }
 
-
-
-    private String descifrarRespuestaDelModerador(String respuestaCifrada) throws Exception {
-        Cipher cifradorAES = Cipher.getInstance("AES");
-        cifradorAES.init(Cipher.DECRYPT_MODE, claveAESModerador);
-        byte[] respuestaBytes = Base64.getDecoder().decode(respuestaCifrada);
-
-        return new String(cifradorAES.doFinal(respuestaBytes));
-    }
-
-
-    private String enviarAlModerador_y_EsperarDecision(String mensajeCifrado) throws Exception {
+    /**
+     * Envía mensaje al moderador y espera su decisión (sincronizado para evitar colisiones)
+     */
+    private String enviarAlModeradorYEsperarDecision(byte[] mensajeCifrado) throws Exception {
         synchronized (lockModerador) {
-            salidaModerador.println(mensajeCifrado);
-            String respuestaCifrada = entradaModerador.readLine();
+            salidaModerador.writeInt(mensajeCifrado.length);
+            salidaModerador.write(mensajeCifrado);
+            salidaModerador.flush();
+
+            int tamaño = entradaModerador.readInt();
+            byte[] respuestaCifrada = new byte[tamaño];
+            entradaModerador.readFully(respuestaCifrada);
 
             // Descifrar la respuesta del moderador
             return descifrarRespuestaDelModerador(respuestaCifrada);
         }
     }
 
+    /**
+     * Descifra la respuesta del moderador
+     */
+    private String descifrarRespuestaDelModerador(byte[] respuestaCifrada) throws Exception {
+        Cipher cifradorAES = Cipher.getInstance("AES");
+        cifradorAES.init(Cipher.DECRYPT_MODE, claveAESModerador);
 
-    private void procesarMensajeDelCliente(Socket cliente, String mensajeCifrado,
-                                           PrintWriter salidaCliente, String nombreCliente) throws Exception {
-        // Descifrar el mensaje del cliente
-        String mensajeDescifrado = descifrarMensajeDelCliente(cliente, mensajeCifrado);
-
-        // Crear mensaje completo
-        Mensaje mensaje = new Mensaje(nombreCliente, mensajeDescifrado);
-
-        // Cifrar y enviar al moderador
-        String mensajeCifradoParaModerador = cifrarMensajeParaModerador(mensaje.toString());
-
-        // Enviar al moderador y esperar su decisión
-        String decision = enviarAlModerador_y_EsperarDecision(mensajeCifradoParaModerador);
-
-        // Procesar la decisión del moderador
-        procesarDecisionDelModerador(decision, salidaCliente, mensaje.toString());
+        return new String(cifradorAES.doFinal(respuestaCifrada));
     }
 
-
-    private void procesarDecisionDelModerador(String decision, PrintWriter salidaCliente, String mensajeCompleto) {
+    /**
+     * Procesa la decisión del moderador y responde al cliente
+     */
+    private void procesarDecisionDelModerador(String decision, DataOutputStream salidaCliente, String mensajeCompleto) throws IOException {
         if ("APROBADO".equalsIgnoreCase(decision)) {
-            System.out.println(mensajeCompleto);
-            salidaCliente.println("ENVIADO");
+            System.out.println("✅ " + mensajeCompleto);
+            byte[] respuesta = "ENVIADO".getBytes();
+            salidaCliente.writeInt(respuesta.length);
+            salidaCliente.write(respuesta);
         } else {
-            System.out.println("Mensaje rechazado: " + mensajeCompleto);
-            salidaCliente.println("RECHAZADO");
+            System.out.println("❌ Mensaje rechazado: " + mensajeCompleto);
+            byte[] respuesta = "RECHAZADO".getBytes();
+            salidaCliente.writeInt(respuesta.length);
+            salidaCliente.write(respuesta);
         }
+        salidaCliente.flush();
     }
 
     public static void main(String[] args) {
@@ -253,9 +374,9 @@ public class Servidor
             int puertoClientes = Integer.parseInt(args[1]);
 
             Servidor servidor = new Servidor(puertoModerador, puertoClientes);
-            servidor.generarClaves_Pub_Priv();
-            servidor.esperarModerador();
-            servidor.esperarClientes();
+            servidor.generarClavesRSA();
+            servidor.esperarConexionModerador();
+            servidor.esperarConexionesClientes();
 
         } catch (NumberFormatException e) {
             System.err.println("❌ Error: Los puertos deben ser números enteros");

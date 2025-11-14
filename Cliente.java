@@ -1,29 +1,44 @@
+package virgo;
+
 import javax.crypto.*;
 import java.io.*;
 import java.net.*;
 import java.security.*;
 import java.security.spec.*;
-import java.util.Base64;
 
 /**
- * Cliente que se conecta al servidor y envía mensajes cifrados
+ * Cliente que se conecta al servidor y envía mensajes cifrados con firma digital
  */
 public class Cliente {
     private Socket socket;
-    private BufferedReader entradaServidor;
-    private PrintWriter salidaServidor;
+    private DataInputStream entradaServidor;
+    private DataOutputStream salidaServidor;
     private BufferedReader entradaConsola;
     private SecretKey claveAESCompartida;
+    private PublicKey clavePublicaCliente;
+    private PrivateKey clavePrivadaCliente;
     private boolean esperandoRespuesta;
 
     public Cliente(String ipServidor, int puertoServidor) throws IOException {
         this.socket = new Socket(ipServidor, puertoServidor);
-        this.entradaServidor = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-        this.salidaServidor = new PrintWriter(socket.getOutputStream(), true);
+        this.entradaServidor = new DataInputStream(socket.getInputStream());
+        this.salidaServidor = new DataOutputStream(socket.getOutputStream());
         this.entradaConsola = new BufferedReader(new InputStreamReader(System.in));
         this.esperandoRespuesta = false;
 
         System.out.println("✅ Conectado al servidor " + ipServidor + ":" + puertoServidor);
+    }
+
+    /**
+     * Genera el par de claves RSA del cliente para firmas digitales
+     */
+    public void generarClavesRSA() throws NoSuchAlgorithmException {
+        KeyPairGenerator generador = KeyPairGenerator.getInstance("RSA");
+        generador.initialize(2048);
+        KeyPair parClaves = generador.generateKeyPair();
+        this.clavePublicaCliente = parClaves.getPublic();
+        this.clavePrivadaCliente = parClaves.getPrivate();
+        System.out.println("🔑 Claves RSA del cliente generadas");
     }
 
     /**
@@ -32,6 +47,9 @@ public class Cliente {
     public void establecerConexionSegura() throws Exception {
         // Recibir clave pública del servidor
         PublicKey clavePublicaServidor = recibirClavePublicaDelServidor();
+
+        // Enviar clave pública del cliente al servidor
+        enviarClavePublicaAlServidor();
 
         // Generar clave AES para comunicación simétrica
         generarClaveAESAleatoria();
@@ -46,11 +64,22 @@ public class Cliente {
      * Recibe y reconstruye la clave pública RSA del servidor
      */
     private PublicKey recibirClavePublicaDelServidor() throws Exception {
-        String clavePublicaBase64 = entradaServidor.readLine();
-        byte[] bytesClavePublica = Base64.getDecoder().decode(clavePublicaBase64);
+        int tamaño = entradaServidor.readInt();
+        byte[] bytesClavePublica = new byte[tamaño];
+        entradaServidor.readFully(bytesClavePublica);
 
         KeyFactory fabricaClaves = KeyFactory.getInstance("RSA");
         return fabricaClaves.generatePublic(new X509EncodedKeySpec(bytesClavePublica));
+    }
+
+    /**
+     * Envía la clave pública del cliente al servidor
+     */
+    private void enviarClavePublicaAlServidor() throws IOException {
+        byte[] clavePublicaBytes = clavePublicaCliente.getEncoded();
+        salidaServidor.writeInt(clavePublicaBytes.length);
+        salidaServidor.write(clavePublicaBytes);
+        salidaServidor.flush();
     }
 
     /**
@@ -69,9 +98,10 @@ public class Cliente {
         Cipher cifradorRSA = Cipher.getInstance("RSA");
         cifradorRSA.init(Cipher.ENCRYPT_MODE, clavePublicaServidor);
         byte[] claveAESCifrada = cifradorRSA.doFinal(claveAESCompartida.getEncoded());
-        String claveAESCifradaBase64 = Base64.getEncoder().encodeToString(claveAESCifrada);
 
-        salidaServidor.println(claveAESCifradaBase64);
+        salidaServidor.writeInt(claveAESCifrada.length);
+        salidaServidor.write(claveAESCifrada);
+        salidaServidor.flush();
     }
 
     /**
@@ -80,7 +110,10 @@ public class Cliente {
     public void enviarNombreDeUsuario() throws IOException {
         System.out.print("Ingresa tu nombre: ");
         String nombre = entradaConsola.readLine();
-        salidaServidor.println(nombre);
+        byte[] nombreBytes = nombre.getBytes();
+        salidaServidor.writeInt(nombreBytes.length);
+        salidaServidor.write(nombreBytes);
+        salidaServidor.flush();
         System.out.println("👤 Registrado como: " + nombre);
     }
 
@@ -90,8 +123,12 @@ public class Cliente {
     public void iniciarHiloEscuchaRespuestas() {
         new Thread(() -> {
             try {
-                String respuesta;
-                while ((respuesta = entradaServidor.readLine()) != null) {
+                while (true) {
+                    int tamaño = entradaServidor.readInt();
+                    byte[] respuestaBytes = new byte[tamaño];
+                    entradaServidor.readFully(respuestaBytes);
+                    String respuesta = new String(respuestaBytes);
+
                     procesarRespuestaDelServidor(respuesta);
                 }
             } catch (IOException e) {
@@ -107,7 +144,7 @@ public class Cliente {
         if ("ENVIADO".equals(respuesta)) {
             System.out.println("✅ Tu mensaje fue enviado");
         } else if ("RECHAZADO".equals(respuesta)) {
-            System.out.println("❌ Tu mensaje fue rechazado por el moderador");
+            System.out.println("❌ Tu mensaje fue rechazado");
         } else {
             System.out.println("📩 " + respuesta);
         }
@@ -131,22 +168,56 @@ public class Cliente {
             String mensaje = entradaConsola.readLine();
 
             if (mensaje != null && !mensaje.trim().isEmpty()) {
-                enviarMensajeCifrado(mensaje);
+                enviarMensajeCifradoConFirma(mensaje);
                 esperandoRespuesta = true;
             }
         }
     }
 
     /**
-     * Cifra y envía un mensaje al servidor usando AES
+     * Cifra un mensaje, lo firma y lo envía al servidor
      */
-    private void enviarMensajeCifrado(String mensaje) throws Exception {
+    private void enviarMensajeCifradoConFirma(String mensaje) throws Exception {
+        // 1. Cifrar el mensaje con AES
         Cipher cifradorAES = Cipher.getInstance("AES");
         cifradorAES.init(Cipher.ENCRYPT_MODE, claveAESCompartida);
         byte[] mensajeCifrado = cifradorAES.doFinal(mensaje.getBytes());
-        String mensajeCifradoBase64 = Base64.getEncoder().encodeToString(mensajeCifrado);
 
-        salidaServidor.println(mensajeCifradoBase64);
+        // 2. Firmar el mensaje original con la clave privada del cliente
+        byte[] firma = firmarMensaje(mensaje);
+
+        // 3. Crear el paquete con mensaje cifrado + firma
+        Paquete paquete = new Paquete(mensajeCifrado, firma);
+
+        // 4. Enviar el paquete
+        enviarPaquete(paquete);
+    }
+
+    /**
+     * Firma un mensaje usando SHA-256 y la clave privada del cliente
+     */
+    private byte[] firmarMensaje(String mensaje) throws Exception {
+        Signature firmador = Signature.getInstance("SHA256withRSA");
+        firmador.initSign(clavePrivadaCliente);
+        firmador.update(mensaje.getBytes());
+        return firmador.sign();
+    }
+
+    /**
+     * Envía un paquete (mensaje cifrado + firma) al servidor
+     */
+    private void enviarPaquete(Paquete paquete) throws IOException {
+        // Enviar mensaje cifrado
+        byte[] mensajeCifrado = paquete.getMensajeCifradoBytes();
+        salidaServidor.writeInt(mensajeCifrado.length);
+        salidaServidor.write(mensajeCifrado);
+
+        // Enviar firma
+        byte[] firma = paquete.getFirmaBytes();
+        salidaServidor.writeInt(firma.length);
+        salidaServidor.write(firma);
+
+        salidaServidor.flush();
     }
 
     public static void main(String[] args) {
@@ -161,6 +232,7 @@ public class Cliente {
             int puerto = Integer.parseInt(args[1]);
 
             Cliente cliente = new Cliente(ipServidor, puerto);
+            cliente.generarClavesRSA();
             cliente.establecerConexionSegura();
             cliente.enviarNombreDeUsuario();
             cliente.iniciarHiloEscuchaRespuestas();

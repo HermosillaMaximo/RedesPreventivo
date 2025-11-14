@@ -1,5 +1,10 @@
+package virgo;
+
 import java.io.Serializable;
 
+/**
+ * Clase que representa un mensaje con su origen y contenido
+ */
 public class Mensaje implements Serializable {
     private String origen;
     private String contenido;

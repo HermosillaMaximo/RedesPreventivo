@@ -1,27 +1,42 @@
+package virgo;
+
 import javax.crypto.*;
 import java.io.*;
 import java.net.*;
 import java.security.*;
 import java.security.spec.*;
-import java.util.Base64;
 
 /**
  * Moderador que recibe mensajes del servidor y decide si aprobarlos o rechazarlos
  */
 public class Moderador {
     private Socket socket;
-    private PrintWriter salidaServidor;
-    private BufferedReader entradaServidor;
+    private DataOutputStream salidaServidor;
+    private DataInputStream entradaServidor;
     private BufferedReader entradaConsola;
     private SecretKey claveAESCompartida;
+    private PublicKey clavePublicaModerador;
+    private PrivateKey clavePrivadaModerador;
 
     public Moderador(String ipServidor, int puertoServidor) throws IOException {
         this.socket = new Socket(ipServidor, puertoServidor);
-        this.salidaServidor = new PrintWriter(socket.getOutputStream(), true);
-        this.entradaServidor = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+        this.salidaServidor = new DataOutputStream(socket.getOutputStream());
+        this.entradaServidor = new DataInputStream(socket.getInputStream());
         this.entradaConsola = new BufferedReader(new InputStreamReader(System.in));
 
         System.out.println("✅ Moderador conectado al servidor " + ipServidor + ":" + puertoServidor);
+    }
+
+    /**
+     * Genera el par de claves RSA del moderador
+     */
+    public void generarClavesRSA() throws NoSuchAlgorithmException {
+        KeyPairGenerator generador = KeyPairGenerator.getInstance("RSA");
+        generador.initialize(2048);
+        KeyPair parClaves = generador.generateKeyPair();
+        this.clavePublicaModerador = parClaves.getPublic();
+        this.clavePrivadaModerador = parClaves.getPrivate();
+        System.out.println("🔑 Claves RSA del moderador generadas");
     }
 
     /**
@@ -30,6 +45,9 @@ public class Moderador {
     public void establecerConexionSegura() throws Exception {
         // Recibir clave pública del servidor
         PublicKey clavePublicaServidor = recibirClavePublicaDelServidor();
+
+        // Enviar clave pública del moderador al servidor
+        enviarClavePublicaAlServidor();
 
         // Generar clave AES para comunicación simétrica
         generarClaveAESAleatoria();
@@ -45,11 +63,22 @@ public class Moderador {
      * Recibe y reconstruye la clave pública RSA del servidor
      */
     private PublicKey recibirClavePublicaDelServidor() throws Exception {
-        String clavePublicaBase64 = entradaServidor.readLine();
-        byte[] bytesClavePublica = Base64.getDecoder().decode(clavePublicaBase64);
+        int tamaño = entradaServidor.readInt();
+        byte[] bytesClavePublica = new byte[tamaño];
+        entradaServidor.readFully(bytesClavePublica);
 
         KeyFactory fabricaClaves = KeyFactory.getInstance("RSA");
         return fabricaClaves.generatePublic(new X509EncodedKeySpec(bytesClavePublica));
+    }
+
+    /**
+     * Envía la clave pública del moderador al servidor
+     */
+    private void enviarClavePublicaAlServidor() throws IOException {
+        byte[] clavePublicaBytes = clavePublicaModerador.getEncoded();
+        salidaServidor.writeInt(clavePublicaBytes.length);
+        salidaServidor.write(clavePublicaBytes);
+        salidaServidor.flush();
     }
 
     /**
@@ -68,18 +97,21 @@ public class Moderador {
         Cipher cifradorRSA = Cipher.getInstance("RSA");
         cifradorRSA.init(Cipher.ENCRYPT_MODE, clavePublicaServidor);
         byte[] claveAESCifrada = cifradorRSA.doFinal(claveAESCompartida.getEncoded());
-        String claveAESCifradaBase64 = Base64.getEncoder().encodeToString(claveAESCifrada);
 
-        salidaServidor.println(claveAESCifradaBase64);
+        salidaServidor.writeInt(claveAESCifrada.length);
+        salidaServidor.write(claveAESCifrada);
+        salidaServidor.flush();
     }
 
     /**
      * Inicia el bucle principal de moderación de mensajes
      */
     public void iniciarModeracion() throws Exception {
-        String mensajeCifrado;
+        while (true) {
+            int tamaño = entradaServidor.readInt();
+            byte[] mensajeCifrado = new byte[tamaño];
+            entradaServidor.readFully(mensajeCifrado);
 
-        while ((mensajeCifrado = entradaServidor.readLine()) != null) {
             // Descifrar el mensaje recibido
             String mensajeDescifrado = descifrarMensajeDelServidor(mensajeCifrado);
 
@@ -95,12 +127,11 @@ public class Moderador {
     /**
      * Descifra un mensaje del servidor usando la clave AES compartida
      */
-    private String descifrarMensajeDelServidor(String mensajeCifrado) throws Exception {
+    private String descifrarMensajeDelServidor(byte[] mensajeCifrado) throws Exception {
         Cipher cifradorAES = Cipher.getInstance("AES");
         cifradorAES.init(Cipher.DECRYPT_MODE, claveAESCompartida);
-        byte[] mensajeBytes = Base64.getDecoder().decode(mensajeCifrado);
 
-        return new String(cifradorAES.doFinal(mensajeBytes));
+        return new String(cifradorAES.doFinal(mensajeCifrado));
     }
 
     /**
@@ -126,9 +157,10 @@ public class Moderador {
         Cipher cifradorAES = Cipher.getInstance("AES");
         cifradorAES.init(Cipher.ENCRYPT_MODE, claveAESCompartida);
         byte[] decisionCifrada = cifradorAES.doFinal(decision.getBytes());
-        String decisionCifradaBase64 = Base64.getEncoder().encodeToString(decisionCifrada);
 
-        salidaServidor.println(decisionCifradaBase64);
+        salidaServidor.writeInt(decisionCifrada.length);
+        salidaServidor.write(decisionCifrada);
+        salidaServidor.flush();
     }
 
     public static void main(String[] args) {
@@ -143,6 +175,7 @@ public class Moderador {
             int puerto = Integer.parseInt(args[1]);
 
             Moderador moderador = new Moderador(ipServidor, puerto);
+            moderador.generarClavesRSA();
             moderador.establecerConexionSegura();
             moderador.iniciarModeracion();
 
