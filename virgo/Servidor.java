@@ -34,9 +34,9 @@ public class Servidor {
         this.clavesAESClientes = new HashMap<>();
         this.clavesPublicasClientes = new HashMap<>();
 
-        System.out.println("✅ Servidor iniciado");
-        System.out.println("   Puerto moderador: " + puertoModerador);
-        System.out.println("   Puerto clientes: " + puertoClientes);
+        System.out.println("Servidor iniciado");
+        System.out.println("Puerto moderador: " + puertoModerador);
+        System.out.println("Puerto clientes: " + puertoClientes);
     }
 
     // Genera el par de claves pública y privada RSA para el servidor
@@ -52,16 +52,16 @@ public class Servidor {
 
     // Convierte la clave pública del servidor a bytes
      
-    private byte[] obtenerClavePublicaEnBytes() {
+    private byte[] obtenerClavePublica() {
         return clavePublicaServidor.getEncoded();
     }
 
     // Espera la conexión del moderador y establece la clave AES compartida
      
     public void esperarConexionModerador() throws Exception {
-        System.out.println(" Esperando conexión del moderador...");
+        System.out.println("Esperando conexión del moderador...");
         moderadorSocket = serverSocketModerador.accept();
-        System.out.println("✅ Moderador conectado desde: " + moderadorSocket.getInetAddress());
+        System.out.println("Moderador conectado desde: " + moderadorSocket.getInetAddress());
 
         salidaModerador = new DataOutputStream(moderadorSocket.getOutputStream());
         entradaModerador = new DataInputStream(moderadorSocket.getInputStream());
@@ -79,7 +79,7 @@ public class Servidor {
     // Envía la clave pública RSA al moderador (en bytes)
      
     private void enviarClavePublicaAlModerador() throws IOException {
-        byte[] clavePublicaBytes = obtenerClavePublicaEnBytes();
+        byte[] clavePublicaBytes = obtenerClavePublica();
         salidaModerador.writeInt(clavePublicaBytes.length);
         salidaModerador.write(clavePublicaBytes);
         salidaModerador.flush();
@@ -94,7 +94,6 @@ public class Servidor {
 
         KeyFactory keyFactory = KeyFactory.getInstance("RSA");
         clavePublicaModerador = keyFactory.generatePublic(new X509EncodedKeySpec(clavePublicaBytes));
-       
     }
 
     
@@ -122,11 +121,11 @@ public class Servidor {
                 try {
                     Socket cliente = serverSocketClientes.accept();
                     clientes.add(cliente);
-                    System.out.println(" Cliente conectado desde: " + cliente.getInetAddress());
+                    System.out.println("Cliente conectado desde: " + cliente.getInetAddress());
 
                     procesarNuevoCliente(cliente);
                 } catch (Exception e) {
-                    System.err.println("❌ Error al procesar cliente: " + e.getMessage());
+                    System.err.println("Error al procesar cliente: " + e.getMessage());
                     e.printStackTrace();
                 }
             }
@@ -165,7 +164,7 @@ public class Servidor {
 
     // envia la clave publica
     private void enviarClavePublicaAlCliente(DataOutputStream salida) throws IOException {
-        byte[] clavePublicaBytes = obtenerClavePublicaEnBytes();
+        byte[] clavePublicaBytes = obtenerClavePublica();
         salida.writeInt(clavePublicaBytes.length);
         salida.write(clavePublicaBytes);
         salida.flush();
@@ -241,7 +240,7 @@ public class Servidor {
         boolean firmaValida = verificarFirma(cliente, mensajeDescifrado, paquete.getFirmaBytes());
 
         if (!firmaValida) {
-            System.out.println("⚠️ FIRMA INVÁLIDA de " + nombreCliente + " - Mensaje rechazado");
+            System.out.println("FIRMA INVÁLIDA de " + nombreCliente + " - Mensaje rechazado");
             byte[] respuesta = "RECHAZADO".getBytes();
             salidaCliente.writeInt(respuesta.length);
             salidaCliente.write(respuesta);
@@ -311,7 +310,7 @@ public class Servidor {
                 return descifrarRespuestaDelModerador(respuestaCifrada);
 
             } catch (IOException ex) {
-                System.out.println("❌ El moderador se desconectó.");
+                System.out.println("El moderador se desconectó.");
                 cerrarServidor();
                 System.exit(0);
             }
@@ -332,7 +331,7 @@ public class Servidor {
 
     private void procesarDecisionDelModerador(String decision, DataOutputStream salidaCliente, String mensajeCompleto) throws IOException {
         if ("APROBADO".equalsIgnoreCase(decision)) {
-            System.out.println("✅ " + mensajeCompleto);
+            System.out.println("✅" + mensajeCompleto);
             byte[] respuesta = "ENVIADO".getBytes();
             salidaCliente.writeInt(respuesta.length);
             salidaCliente.write(respuesta);

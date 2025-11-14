@@ -24,7 +24,7 @@ public class Cliente {
         this.entradaConsola = new BufferedReader(new InputStreamReader(System.in));
         this.esperandoRespuesta = false;
 
-        System.out.println("✅ Conectado al servidor " + ipServidor + ":" + puertoServidor);
+        System.out.println("Conectado al servidor " + ipServidor + ":" + puertoServidor);
     }
 
     
@@ -105,7 +105,7 @@ public class Cliente {
         salidaServidor.writeInt(nombreBytes.length);
         salidaServidor.write(nombreBytes);
         salidaServidor.flush();
-        System.out.println("👤 Registrado como: " + nombre);
+        System.out.println("Registrado como: " + nombre);
     }
 
     // Inicia el hilo que escucha respuestas del servidor
@@ -122,7 +122,7 @@ public class Cliente {
                     procesarRespuestaDelServidor(respuesta);
                 }
             } catch (IOException e) {
-                System.err.println("❌ Error al recibir respuesta: " + e.getMessage());
+                System.err.println("Error al recibir respuesta: " + e.getMessage());
             }
         }).start();
     }
@@ -131,15 +131,15 @@ public class Cliente {
      
     private void procesarRespuestaDelServidor(String respuesta) {
         if ("ENVIADO".equals(respuesta)) {
-            System.out.println("✅ Tu mensaje fue enviado");
+            System.out.println("Tu mensaje fue enviado");
         } else if ("RECHAZADO".equals(respuesta)) {
-            System.out.println("❌ Tu mensaje fue rechazado");
+            System.out.println("Tu mensaje fue rechazado");
         } else {
             System.out.println("📩 " + respuesta);
         }
 
         esperandoRespuesta = false;
-        System.out.print("\nEscribe tu mensaje: ");
+        System.out.print("Escribe tu mensaje: ");
     }
 
     // Inicia el bucle para enviar mensajes
@@ -206,8 +206,8 @@ public class Cliente {
 
     public static void main(String[] args) {
         if (args.length != 2) {
-            System.err.println("❌ Uso: java Cliente <ipServidor> <puerto>");
-            System.err.println("   Ejemplo: java Cliente 192.168.1.7 50001");
+            System.err.println("Uso: java Cliente <ipServidor> <puerto>");
+            System.err.println("Ejemplo: java Cliente 192.168.1.7 50001");
             System.exit(1);
         }
 
@@ -223,10 +223,10 @@ public class Cliente {
             cliente.iniciarBucleMensajes();
 
         } catch (NumberFormatException e) {
-            System.err.println("❌ Error: El puerto debe ser un número entero");
+            System.err.println("Error: El puerto debe ser un número entero");
             System.exit(1);
         } catch (Exception e) {
-            System.err.println("❌ Error en el cliente: " + e.getMessage());
+            System.err.println("Error en el cliente: " + e.getMessage());
             e.printStackTrace();
             System.exit(1);
         }

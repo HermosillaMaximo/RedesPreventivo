@@ -22,7 +22,7 @@ public class Moderador {
         this.entradaServidor = new DataInputStream(socket.getInputStream());
         this.entradaConsola = new BufferedReader(new InputStreamReader(System.in));
 
-        System.out.println("✅ Moderador conectado al servidor " + ipServidor + ":" + puertoServidor);
+        System.out.println("Moderador conectado al servidor " + ipServidor + ":" + puertoServidor);
     }
 
     
@@ -54,7 +54,7 @@ public class Moderador {
         enviarClaveAESCifradaAlServidor(clavePublicaServidor);
 
         System.out.println("Conexión segura establecida");
-        System.out.println("🛡️  Esperando mensajes para moderar...\n");
+        System.out.println("Esperando mensajes para moderar...\n");
     }
 
     // Recibe y reconstruye la clave pública RSA del servidor
@@ -132,10 +132,10 @@ public class Moderador {
         String respuesta = entradaConsola.readLine();
 
         if ("si".equalsIgnoreCase(respuesta)) {
-            System.out.println("✅ Mensaje aprobado");
+            System.out.println("Mensaje aprobado");
             return "APROBADO";
         } else {
-            System.out.println("❌ Mensaje rechazado");
+            System.out.println("Mensaje rechazado");
             return "RECHAZADO";
         }
     }
@@ -155,8 +155,8 @@ public class Moderador {
 
     public static void main(String[] args) {
         if (args.length != 2) {
-            System.err.println("❌ Uso: java Moderador <ipServidor> <puerto>");
-            System.err.println("   Ejemplo: java Moderador 192.168.1.7 50000");
+            System.err.println("Uso: java Moderador <ipServidor> <puerto>");
+            System.err.println("Ejemplo: java Moderador 192.168.1.7 50000");
             System.exit(1);
         }
 
@@ -170,10 +170,10 @@ public class Moderador {
             moderador.iniciarModeracion();
 
         } catch (NumberFormatException e) {
-            System.err.println("❌ Error: El puerto debe ser un número entero");
+            System.err.println("Error: El puerto debe ser un número entero");
             System.exit(1);
         } catch (Exception e) {
-            System.err.println("❌ Error en el moderador: " + e.getMessage());
+            System.err.println("Error en el moderador: " + e.getMessage());
             e.printStackTrace();
             System.exit(1);
         }
