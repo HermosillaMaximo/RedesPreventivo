@@ -6,9 +6,7 @@ import java.net.*;
 import java.security.*;
 import java.security.spec.*;
 
-/**
- * Cliente que se conecta al servidor y envía mensajes cifrados con firma digital
- */
+
 public class Cliente {
     private Socket socket;
     private DataInputStream entradaServidor;
@@ -29,21 +27,18 @@ public class Cliente {
         System.out.println("✅ Conectado al servidor " + ipServidor + ":" + puertoServidor);
     }
 
-    /**
-     * Genera el par de claves RSA del cliente para firmas digitales
-     */
-    public void generarClavesRSA() throws NoSuchAlgorithmException {
+    
+    public void generarClavesPub_y_Priv() throws NoSuchAlgorithmException {
         KeyPairGenerator generador = KeyPairGenerator.getInstance("RSA");
         generador.initialize(2048);
         KeyPair parClaves = generador.generateKeyPair();
         this.clavePublicaCliente = parClaves.getPublic();
         this.clavePrivadaCliente = parClaves.getPrivate();
-        System.out.println("🔑 Claves RSA del cliente generadas");
+        System.out.println(" Claves del cliente generadas");
     }
 
-    /**
-     * Establece la conexión segura con el servidor mediante intercambio de claves
-     */
+    // Establece la conexión segura con el servidor mediante intercambio de claves
+     
     public void establecerConexionSegura() throws Exception {
         // Recibir clave pública del servidor
         PublicKey clavePublicaServidor = recibirClavePublicaDelServidor();
@@ -57,12 +52,11 @@ public class Cliente {
         // Cifrar y enviar la clave AES al servidor
         enviarClaveAESCifradaAlServidor(clavePublicaServidor);
 
-        System.out.println("🔐 Conexión segura establecida");
+        System.out.println(" Conexión establecida");
     }
 
-    /**
-     * Recibe y reconstruye la clave pública RSA del servidor
-     */
+    // Recibe y reconstruye la clave pública Asimetrica del servidor
+     
     private PublicKey recibirClavePublicaDelServidor() throws Exception {
         int tamaño = entradaServidor.readInt();
         byte[] bytesClavePublica = new byte[tamaño];
@@ -72,9 +66,9 @@ public class Cliente {
         return fabricaClaves.generatePublic(new X509EncodedKeySpec(bytesClavePublica));
     }
 
-    /**
-     * Envía la clave pública del cliente al servidor
-     */
+    
+    // Envía la clave pública del cliente al servidor
+     
     private void enviarClavePublicaAlServidor() throws IOException {
         byte[] clavePublicaBytes = clavePublicaCliente.getEncoded();
         salidaServidor.writeInt(clavePublicaBytes.length);
@@ -82,18 +76,16 @@ public class Cliente {
         salidaServidor.flush();
     }
 
-    /**
-     * Genera una clave AES aleatoria de 128 bits
-     */
+    // Genera una clave AES aleatoria de 128 bits
+     
     private void generarClaveAESAleatoria() throws NoSuchAlgorithmException {
         KeyGenerator generadorClaves = KeyGenerator.getInstance("AES");
         generadorClaves.init(128);
         claveAESCompartida = generadorClaves.generateKey();
     }
 
-    /**
-     * Cifra la clave AES con RSA y la envía al servidor
-     */
+    // Cifra la clave AES con RSA y la envía al servidor
+     
     private void enviarClaveAESCifradaAlServidor(PublicKey clavePublicaServidor) throws Exception {
         Cipher cifradorRSA = Cipher.getInstance("RSA");
         cifradorRSA.init(Cipher.ENCRYPT_MODE, clavePublicaServidor);
@@ -104,9 +96,8 @@ public class Cliente {
         salidaServidor.flush();
     }
 
-    /**
-     * Solicita y envía el nombre del cliente al servidor
-     */
+    // Solicita y envía el nombre del cliente al servidor
+     
     public void enviarNombreDeUsuario() throws IOException {
         System.out.print("Ingresa tu nombre: ");
         String nombre = entradaConsola.readLine();
@@ -117,9 +108,8 @@ public class Cliente {
         System.out.println("👤 Registrado como: " + nombre);
     }
 
-    /**
-     * Inicia el hilo que escucha respuestas del servidor
-     */
+    // Inicia el hilo que escucha respuestas del servidor
+     
     public void iniciarHiloEscuchaRespuestas() {
         new Thread(() -> {
             try {
@@ -137,9 +127,8 @@ public class Cliente {
         }).start();
     }
 
-    /**
-     * Procesa las respuestas del servidor (ENVIADO o RECHAZADO)
-     */
+    // Procesa las respuestas del servidor (ENVIADO o RECHAZADO)
+     
     private void procesarRespuestaDelServidor(String respuesta) {
         if ("ENVIADO".equals(respuesta)) {
             System.out.println("✅ Tu mensaje fue enviado");
@@ -153,9 +142,8 @@ public class Cliente {
         System.out.print("\nEscribe tu mensaje: ");
     }
 
-    /**
-     * Inicia el bucle principal para enviar mensajes
-     */
+    // Inicia el bucle para enviar mensajes
+     
     public void iniciarBucleMensajes() throws Exception {
         System.out.print("Escribe tu mensaje: ");
 
@@ -174,9 +162,7 @@ public class Cliente {
         }
     }
 
-    /**
-     * Cifra un mensaje, lo firma y lo envía al servidor
-     */
+    // Cifra un mensaje, lo firma y lo envía al servidor
     private void enviarMensajeCifradoConFirma(String mensaje) throws Exception {
         // 1. Cifrar el mensaje con AES
         Cipher cifradorAES = Cipher.getInstance("AES");
@@ -193,9 +179,8 @@ public class Cliente {
         enviarPaquete(paquete);
     }
 
-    /**
-     * Firma un mensaje usando SHA-256 y la clave privada del cliente
-     */
+    // Firma un mensaje usando SHA-256 y la clave privada del cliente
+    
     private byte[] firmarMensaje(String mensaje) throws Exception {
         Signature firmador = Signature.getInstance("SHA256withRSA");
         firmador.initSign(clavePrivadaCliente);
@@ -203,9 +188,8 @@ public class Cliente {
         return firmador.sign();
     }
 
-    /**
-     * Envía un paquete (mensaje cifrado + firma) al servidor
-     */
+    // Envía un paquete (mensaje cifrado + firma) al servidor
+
     private void enviarPaquete(Paquete paquete) throws IOException {
         // Enviar mensaje cifrado
         byte[] mensajeCifrado = paquete.getMensajeCifradoBytes();
@@ -232,7 +216,7 @@ public class Cliente {
             int puerto = Integer.parseInt(args[1]);
 
             Cliente cliente = new Cliente(ipServidor, puerto);
-            cliente.generarClavesRSA();
+            cliente.generarClavesPub_y_Priv();
             cliente.establecerConexionSegura();
             cliente.enviarNombreDeUsuario();
             cliente.iniciarHiloEscuchaRespuestas();
@@ -247,4 +231,5 @@ public class Cliente {
             System.exit(1);
         }
     }
+
 }
