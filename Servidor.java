@@ -8,10 +8,7 @@ import java.security.*;
 import java.security.spec.X509EncodedKeySpec;
 import java.util.*;
 
-/**
- * Servidor que gestiona la comunicación entre clientes y moderador
- * con encriptación simétrica (AES), asimétrica (RSA) y firmas digitales
- */
+
 public class Servidor {
     private ServerSocket serverSocketClientes;
     private ServerSocket serverSocketModerador;
@@ -42,30 +39,27 @@ public class Servidor {
         System.out.println("   Puerto clientes: " + puertoClientes);
     }
 
-    /**
-     * Genera el par de claves pública y privada RSA para el servidor
-     */
+    // Genera el par de claves pública y privada RSA para el servidor
+     
     public void generarClavesRSA() throws NoSuchAlgorithmException {
         KeyPairGenerator generador = KeyPairGenerator.getInstance("RSA");
         generador.initialize(2048);
         KeyPair parClaves = generador.generateKeyPair();
         this.clavePublicaServidor = parClaves.getPublic();
         this.clavePrivadaServidor = parClaves.getPrivate();
-        System.out.println("🔑 Claves RSA del servidor generadas");
+        System.out.println("Claves del servidor generadas");
     }
 
-    /**
-     * Convierte la clave pública del servidor a bytes
-     */
+    // Convierte la clave pública del servidor a bytes
+     
     private byte[] obtenerClavePublicaEnBytes() {
         return clavePublicaServidor.getEncoded();
     }
 
-    /**
-     * Espera la conexión del moderador y establece la clave AES compartida
-     */
+    // Espera la conexión del moderador y establece la clave AES compartida
+     
     public void esperarConexionModerador() throws Exception {
-        System.out.println("⏳ Esperando conexión del moderador...");
+        System.out.println(" Esperando conexión del moderador...");
         moderadorSocket = serverSocketModerador.accept();
         System.out.println("✅ Moderador conectado desde: " + moderadorSocket.getInetAddress());
 
@@ -82,9 +76,8 @@ public class Servidor {
         recibirYDescifrarClaveAESDelModerador();
     }
 
-    /**
-     * Envía la clave pública RSA al moderador (en bytes)
-     */
+    // Envía la clave pública RSA al moderador (en bytes)
+     
     private void enviarClavePublicaAlModerador() throws IOException {
         byte[] clavePublicaBytes = obtenerClavePublicaEnBytes();
         salidaModerador.writeInt(clavePublicaBytes.length);
@@ -92,9 +85,8 @@ public class Servidor {
         salidaModerador.flush();
     }
 
-    /**
-     * Recibe la clave pública del moderador
-     */
+    // Recibe la clave pública del moderador
+     
     private void recibirClavePublicaDelModerador() throws Exception {
         int tamaño = entradaModerador.readInt();
         byte[] clavePublicaBytes = new byte[tamaño];
@@ -102,12 +94,12 @@ public class Servidor {
 
         KeyFactory keyFactory = KeyFactory.getInstance("RSA");
         clavePublicaModerador = keyFactory.generatePublic(new X509EncodedKeySpec(clavePublicaBytes));
-        System.out.println("🔑 Clave pública del moderador recibida");
+       
     }
 
-    /**
-     * Recibe la clave AES cifrada del moderador y la descifra con la clave privada RSA
-     */
+    
+     // Recibe la clave AES cifrada del moderador y la descifra con la clave privada RSA
+     
     private void recibirYDescifrarClaveAESDelModerador() throws Exception {
         int tamaño = entradaModerador.readInt();
         byte[] claveAESCifrada = new byte[tamaño];
@@ -118,19 +110,19 @@ public class Servidor {
         byte[] claveAESBytes = cifradorRSA.doFinal(claveAESCifrada);
 
         claveAESModerador = new SecretKeySpec(claveAESBytes, 0, claveAESBytes.length, "AES");
-        System.out.println("🔐 Clave AES del moderador establecida");
+        
     }
 
     // Inicia el hilo que espera conexiones de múltiples clientes
 
     public void esperarConexionesClientes() {
         new Thread(() -> {
-            System.out.println("⏳ Esperando clientes...");
+            System.out.println(" Esperando clientes...");
             while (true) {
                 try {
                     Socket cliente = serverSocketClientes.accept();
                     clientes.add(cliente);
-                    System.out.println("🔗 Cliente conectado desde: " + cliente.getInetAddress());
+                    System.out.println(" Cliente conectado desde: " + cliente.getInetAddress());
 
                     procesarNuevoCliente(cliente);
                 } catch (Exception e) {
